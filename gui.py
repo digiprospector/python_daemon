@@ -45,14 +45,14 @@ class ScriptRunner(QObject):
         self.processes = {}  # 脚本ID -> {process: QProcess, name: str}
 
     @Slot(str)
-    def run_script(self, script_path_str):
+    def run_script(self, script_path_str, args=None):
         """以非阻塞方式运行目标python脚本。"""
         script_path = Path(script_path_str)
         script_id = str(script_path.absolute())
 
         # 如果脚本已在运行，则终止它
         if script_id in self.processes and self.processes[script_id]['process'].state() != QProcess.ProcessState.NotRunning:
-            self.stop_script(script_id)
+            self.stop_script(script_id) # 注意：这里是停止脚本，不是重启。如果需要带新参数重启，逻辑会更复杂。
             return True # 返回True表示执行了操作
 
         if not script_path.exists():
@@ -61,7 +61,11 @@ class ScriptRunner(QObject):
             self.setup_error.emit(script_id, error_msg)
             return False
 
-        print(f"开始运行脚本: {PYTHON_EXECUTABLE} {script_id}")
+        arguments = [script_id]
+        if args:
+            arguments.extend(args)
+
+        print(f"开始运行脚本: {PYTHON_EXECUTABLE} {' '.join(arguments)}")
         self.log_message.emit(script_id, f"--- 开始运行脚本: {script_path.name} ---\n")
         self.started_message.emit(script_id)
         
@@ -77,7 +81,7 @@ class ScriptRunner(QObject):
         process.readyReadStandardOutput.connect(lambda: self.handle_stdout(script_id))
         process.readyReadStandardError.connect(lambda: self.handle_stderr(script_id))
         process.finished.connect(lambda code, status: self.on_finished(script_id, code, status))
-        process.start(PYTHON_EXECUTABLE, [script_id])
+        process.start(PYTHON_EXECUTABLE, arguments)
 
         print(f"'{script_path_str}' 已启动。")
         return True
@@ -114,13 +118,13 @@ class ScriptRunner(QObject):
 
 class Server(QObject):
     """一个简单的TCP服务器，用于监听特定消息。"""
-    trigger_script = Signal(str) # 触发信号，参数为脚本路径
+    trigger_script = Signal(str, list) # 触发信号，参数为脚本路径和参数列表
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._server = QTcpServer(self)
         self._server.newConnection.connect(self.on_new_connection)
-        self.message_map = {config['msg'].decode('utf-8'): config['script'] for config in SCRIPTS_CONFIG}
+        self.message_map = {config['msg'].decode('utf-8'): {'script': config['script'], 'args': config.get('args', [])} for config in SCRIPTS_CONFIG}
 
     def start(self):
         if not self._server.listen(QHostAddress(HOST), PORT):
@@ -145,9 +149,11 @@ class Server(QObject):
         data = socket.readAll().data().decode('utf-8').strip()
         print(f"收到数据: {data}")
         if data in self.message_map: # 比较字符串
-            script_to_run = self.message_map[data] # 获取脚本路径
-            print(f"收到消息 '{data}'! 正在触发脚本: {script_to_run}")
-            self.trigger_script.emit(script_to_run)
+            script_info = self.message_map[data]
+            script_to_run = script_info['script']
+            args_to_run = script_info['args']
+            print(f"收到消息 '{data}'! 正在触发脚本: {script_to_run} 带参数: {args_to_run}")
+            self.trigger_script.emit(script_to_run, args_to_run)
             socket.write(f"确认: 已触发 {Path(script_to_run).name}。\n".encode('utf-8'))
         else:
             socket.write("错误: 无效消息。\n".encode('utf-8'))
@@ -178,6 +184,7 @@ class MainWindow(QMainWindow):
             script_path = config['script']
             script_id = str(Path(script_path).absolute())
             tab_name = config['name']
+            args = config.get('args', []) # 获取参数，如果不存在则为空列表
 
             tab = QWidget()
             tab_layout = QVBoxLayout(tab)
@@ -194,7 +201,7 @@ class MainWindow(QMainWindow):
             tab_layout.addWidget(log_display)
 
             index = self.tab_widget.addTab(tab, tab_name)
-            self.tabs_info[script_id] = {"log_display": log_display, "button": run_button, "index": index, "path": script_path}
+            self.tabs_info[script_id] = {"log_display": log_display, "button": run_button, "index": index, "path": script_path, "args": args}
 
         # --- UI创建后加载设置 ---
         self.load_settings()
@@ -264,7 +271,8 @@ class MainWindow(QMainWindow):
             self.runner.stop_script(script_id)
         else:
             # 脚本未运行，所以启动它
-            self.runner.run_script(self.tabs_info[script_id]['path'])
+            script_info = self.tabs_info[script_id]
+            self.runner.run_script(script_info['path'], script_info['args'])
 
     @Slot(str, str)
     def append_log_message(self, script_id, message):

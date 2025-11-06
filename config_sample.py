@@ -14,11 +14,13 @@ CURRENT_DIR = Path(__file__).parent
 # - name: 选项卡和按钮的显示名称。
 # - script: 要执行的python脚本的路径。
 # - msg: 通过TCP套接字触发脚本的秘密消息。
+# - args: (可选) 一个字符串列表，作为命令行参数传递给脚本。
 SCRIPTS_CONFIG = [
     {
         "name": "测试脚本",
         "script": str(CURRENT_DIR / "test.py"),
-        "msg": b"RUN_SCRIPT_TEST"
+        "msg": b"RUN_SCRIPT_TEST",
+        "args": ["参数1", "hello world", "123"]
     }
     # 你可以在这里添加更多的脚本，例如：
 ]
