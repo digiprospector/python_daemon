@@ -313,10 +313,11 @@ class MainWindow(QMainWindow):
             # 这是普通日志或进度条的最后一次输出（通常带'\n'）
             # 直接插入文本，保留其原始格式
             self.insert_formatted_text(cursor, message, en_font, zh_font)
-
-        # 如果之前就在底部，则新消息到来后继续滚动到底部
+        
+        # 如果之前就在底部，则新消息到来后继续滚动到底部。
+        # 注意：ensureCursorVisible()有时因事件循环时序问题不可靠，直接操作滚动条更稳妥。
         if is_at_bottom:
-            log_display.ensureCursorVisible()
+            scrollbar.setValue(scrollbar.maximum())
 
     @Slot()
     def select_font(self, lang):
