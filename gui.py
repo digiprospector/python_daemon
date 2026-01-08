@@ -71,6 +71,7 @@ class ScriptRunner(QObject):
         
         process = QProcess()
         self.processes[script_id] = {'process': process, 'name': script_path.name}
+        process.setWorkingDirectory(str(script_path.absolute().parent))
 
         # 设置子进程的环境变量，强制其输出为UTF-8，解决中文乱码问题
         env = QProcessEnvironment.systemEnvironment()
