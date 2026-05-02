@@ -89,41 +89,8 @@ def _resolve_child_python(exe: str) -> str:
 PYTHON_EXECUTABLE = _resolve_child_python(sys.executable)
 # ---------------------
 
-# 侧边栏图标轮转池：尽量挑选视觉差异较大的，避免相邻项混淆
-NAV_ICON_POOL = [
-    FIF.VIDEO,
-    FIF.MARKET,
-    FIF.BROOM,
-    FIF.CODE,
-    FIF.GLOBE,
-    FIF.MUSIC,
-    FIF.ROBOT,
-    FIF.MAIL,
-    FIF.GAME,
-    FIF.BOOK_SHELF,
-    FIF.PIE_SINGLE,
-    FIF.HOME,
-    FIF.CLOUD,
-    FIF.MEGAPHONE,
-]
-
-
-def resolve_nav_icon(cfg: dict, index: int):
-    """选择一个用于侧边栏的图标。
-
-    1. 若 config 里指定了 'icon' 字段：
-       - 是 FluentIcon 成员，直接用
-       - 是字符串（如 "VIDEO"），按名查 FluentIcon
-    2. 否则按位置从轮转池循环取，保证每个脚本图标不同
-    """
-    icon = cfg.get('icon')
-    if isinstance(icon, FIF):
-        return icon
-    if isinstance(icon, str):
-        candidate = getattr(FIF, icon.strip().upper(), None)
-        if candidate is not None:
-            return candidate
-    return NAV_ICON_POOL[index % len(NAV_ICON_POOL)]
+# 侧边栏使用最小的占位图标
+PLACEHOLDER_ICON = FIF.TRANSPARENT
 
 
 
@@ -742,6 +709,42 @@ class MainWindow(FluentWindow):
             theme_key = "auto"
         self._apply_theme(theme_key, persist=False)
 
+        # --- 隐藏侧边栏图标，只显示文字，并支持文字换行 ---
+        self.navigationInterface.setStyleSheet("""
+            NavigationTreeWidget {
+                background-color: transparent;
+            }
+            NavigationTreeWidget::item {
+                padding: 8px 12px;
+                border-radius: 6px;
+                min-height: 40px;
+            }
+            /* 完全隐藏图标容器 */
+            NavigationTreeWidget QLabel[property="icon"] {
+                max-width: 0px;
+                max-height: 0px;
+                min-width: 0px;
+                min-height: 0px;
+                margin: 0px;
+                padding: 0px;
+                border: none;
+            }
+            /* 隐藏图标的父容器 */
+            NavigationTreeWidget > QWidget > QHBoxLayout > QLabel:first-child {
+                max-width: 0px;
+                margin: 0px;
+                padding: 0px;
+            }
+            /* 文字标签支持换行 */
+            NavigationTreeWidget QLabel[property="text"] {
+                padding-left: 12px;
+                word-wrap: break-word;
+                word-break: break-all;
+            }
+        """)
+        # 增加侧边栏宽度以容纳更长的文字
+        self.navigationInterface.setExpandWidth(250)
+
         # --- 创建脚本页面并添加到侧边栏 ---
         self.pages = {}  # script_id -> ScriptPage
         for index, cfg in enumerate(SCRIPTS_CONFIG):
@@ -755,24 +758,58 @@ class MainWindow(FluentWindow):
             page.log_display.setFont(self.log_font)
             self.pages[script_id] = page
 
-            self.addSubInterface(page, resolve_nav_icon(cfg, index), name)
+            self.addSubInterface(page, PLACEHOLDER_ICON, name)
+
+            # 设置导航项文字标签支持换行，并隐藏图标
+            nav_item = self.navigationInterface.widget(page.objectName())
+            if nav_item:
+                for child in nav_item.findChildren(QWidget):
+                    # 隐藏图标
+                    if child.property("icon") is not None:
+                        child.setVisible(False)
+                        child.setMaximumSize(0, 0)
+                    # 启用文字换行
+                    if hasattr(child, 'setWordWrap'):
+                        child.setWordWrap(True)
 
         # --- 配置编辑页（侧边栏底部）---
         self.config_editor_page = ConfigEditorPage(config_path)
         self.config_editor_page.restart_requested.connect(self.restart_application)
         self.addSubInterface(
-            self.config_editor_page, FIF.DOCUMENT, "配置编辑",
+            self.config_editor_page, PLACEHOLDER_ICON, "配置编辑",
             position=NavigationItemPosition.BOTTOM
         )
+        # 设置导航项文字标签支持换行
+        nav_item = self.navigationInterface.widget(self.config_editor_page.objectName())
+        if nav_item:
+            for child in nav_item.findChildren(QWidget):
+                # 隐藏图标
+                if child.property("icon") is not None:
+                    child.setVisible(False)
+                    child.setMaximumSize(0, 0)
+                # 启用文字换行
+                if hasattr(child, 'setWordWrap'):
+                    child.setWordWrap(True)
 
         # --- 设置页（侧边栏底部）---
         self.setting_page = SettingPage(self.log_font, theme_key)
         self.setting_page.font_changed.connect(self.on_font_changed)
         self.setting_page.theme_changed.connect(self.on_theme_changed)
         self.addSubInterface(
-            self.setting_page, FIF.SETTING, "设置",
+            self.setting_page, PLACEHOLDER_ICON, "设置",
             position=NavigationItemPosition.BOTTOM
         )
+        # 设置导航项文字标签支持换行
+        nav_item = self.navigationInterface.widget(self.setting_page.objectName())
+        if nav_item:
+            for child in nav_item.findChildren(QWidget):
+                # 隐藏图标
+                if child.property("icon") is not None:
+                    child.setVisible(False)
+                    child.setMaximumSize(0, 0)
+                # 启用文字换行
+                if hasattr(child, 'setWordWrap'):
+                    child.setWordWrap(True)
 
         # --- 应用图标 ---
         icon_path = CURRENT_SCRIPT_DIR / "icon.png"
@@ -814,6 +851,9 @@ class MainWindow(FluentWindow):
                                self)
                 w.exec()
                 QTimer.singleShot(0, self.quit_application)
+
+        # --- 默认展开侧边栏（延迟执行以确保界面完全加载）---
+        QTimer.singleShot(0, lambda: self.navigationInterface.expand(useAni=False))
 
     # ---------- 主题与字体 ----------
     def _apply_theme(self, key: str, persist: bool = True):
